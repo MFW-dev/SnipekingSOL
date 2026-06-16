@@ -38,12 +38,15 @@ export class OnchainWatcher extends EventEmitter {
 
     for (const [label, programId] of Object.entries(this.config.watch.programIds)) {
       const publicKey = new PublicKey(programId);
+      
       const subId = this.connection.onLogs(publicKey, (event) => {
         if (event.err || !hasPoolLikeLog(event.logs)) return;
+        
         this.processSignatureWithinBudget(event.signature, label).catch((error) => {
           log("watcher", "failed to process log event", errorToJson(error), "warn");
         });
       }, this.config.commitment);
+      
       this.subscriptions.push(subId);
       log("watcher", `watching ${label}`, { programId });
     }
@@ -110,6 +113,7 @@ export class OnchainWatcher extends EventEmitter {
       commitment: this.config.commitment,
       maxSupportedTransactionVersion: 0
     });
+    
     if (!tx || !hasPoolLikeLog(tx.meta?.logMessages || [])) return;
 
     for (const mint of tokenMintsFromTransaction(tx)) {

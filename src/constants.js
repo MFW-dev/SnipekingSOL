@@ -9,23 +9,20 @@ export const AVAILABLE_WATCH_PROGRAMS = {
   raydiumCpmm: "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
   raydiumAmmV4: "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
   raydiumClmm: "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
-  meteoraDlmm: "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo"
+  meteoraDlmm: "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",
+  pumpFun: "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
 };
 
-// PERBAIKAN: Memasukkan program utama Raydium ke dalam daftar pantauan default
 export const DEFAULT_WATCH_PROGRAMS = {
-  raydiumLaunchLab: AVAILABLE_WATCH_PROGRAMS.raydiumLaunchLab,
   raydiumAmmV4: AVAILABLE_WATCH_PROGRAMS.raydiumAmmV4,
   raydiumCpmm: AVAILABLE_WATCH_PROGRAMS.raydiumCpmm
 };
 
+// Filter ini hanya akan memicu bot jika terjadi pembuatan pool baru
 export const POOL_LOG_PATTERNS = [
-  /initialize2/i,
-  /init_pc_amount/i,
-  /initialize.*pool/i,
+  /initialize/i,
   /create.*pool/i,
-  /new.*pool/i,
-  /InitializeLbPair/i
+  /new.*pool/i
 ];
 
 export const DECISION_TYPES = {
