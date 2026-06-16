@@ -5,12 +5,8 @@ export const MINTS = {
 };
 
 export const AVAILABLE_WATCH_PROGRAMS = {
-  raydiumLaunchLab: "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj",
-  raydiumCpmm: "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
   raydiumAmmV4: "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
-  raydiumClmm: "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
-  meteoraDlmm: "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",
-  pumpFun: "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
+  raydiumCpmm: "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C"
 };
 
 export const DEFAULT_WATCH_PROGRAMS = {
@@ -18,11 +14,10 @@ export const DEFAULT_WATCH_PROGRAMS = {
   raydiumCpmm: AVAILABLE_WATCH_PROGRAMS.raydiumCpmm
 };
 
-// Filter ini hanya akan memicu bot jika terjadi pembuatan pool baru
+// Pola ini sangat spesifik untuk inisialisasi pool
 export const POOL_LOG_PATTERNS = [
-  /initialize/i,
-  /create.*pool/i,
-  /new.*pool/i
+  /initialize2/i, 
+  /initialize/i
 ];
 
 export const DECISION_TYPES = {
