@@ -40,6 +40,8 @@ export class OnchainWatcher extends EventEmitter {
       const publicKey = new PublicKey(programId);
       
       const subId = this.connection.onLogs(publicKey, (event) => {
+        // Jika log tidak mengandung 'initialize', langsung buang/abaikan.
+        // Ini akan menghentikan spamming log.
         if (event.err || !hasPoolLikeLog(event.logs)) return;
         
         this.processSignatureWithinBudget(event.signature, label).catch((error) => {
@@ -49,18 +51,6 @@ export class OnchainWatcher extends EventEmitter {
       
       this.subscriptions.push(subId);
       log("watcher", `watching ${label}`, { programId });
-    }
-  }
-
-  async bootstrapRecentSignatures() {
-    const limit = this.config.watch.bootstrapRecentSignatures;
-    if (!limit) return;
-
-    for (const [label, programId] of Object.entries(this.config.watch.programIds)) {
-      const signatures = await this.connection.getSignaturesForAddress(new PublicKey(programId), { limit });
-      for (const item of signatures) {
-        await this.processSignatureWithinBudget(item.signature, label);
-      }
     }
   }
 
@@ -76,33 +66,15 @@ export class OnchainWatcher extends EventEmitter {
 
   reserveParseSlot(signature) {
     if (this.state.seenSignatures[signature]) return false;
-
     const now = Date.now();
     this.parseTimestamps = this.parseTimestamps.filter((ts) => now - ts < 60_000);
 
-    if (this.activeParses >= this.config.watch.maxConcurrentParses) {
-      this.logBudgetSkip("parse concurrency limit reached");
-      return false;
-    }
-
-    if (this.parseTimestamps.length >= this.config.watch.maxParsedTransactionsPerMinute) {
-      this.logBudgetSkip("parse budget reached; skipping extra log signatures");
-      return false;
-    }
+    if (this.activeParses >= this.config.watch.maxConcurrentParses) return false;
+    if (this.parseTimestamps.length >= this.config.watch.maxParsedTransactionsPerMinute) return false;
 
     this.activeParses += 1;
     this.parseTimestamps.push(now);
     return true;
-  }
-
-  logBudgetSkip(message) {
-    const now = Date.now();
-    if (now - this.lastBudgetLogAt < 60_000) return;
-    this.lastBudgetLogAt = now;
-    log("watcher", message, {
-      maxParsedTransactionsPerMinute: this.config.watch.maxParsedTransactionsPerMinute,
-      maxConcurrentParses: this.config.watch.maxConcurrentParses
-    }, "warn");
   }
 
   async processSignature(signature, source) {
@@ -114,6 +86,7 @@ export class OnchainWatcher extends EventEmitter {
       maxSupportedTransactionVersion: 0
     });
     
+    // Validasi ulang: Pastikan transaksi benar-benar mengandung pool creation
     if (!tx || !hasPoolLikeLog(tx.meta?.logMessages || [])) return;
 
     for (const mint of tokenMintsFromTransaction(tx)) {

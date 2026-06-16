@@ -14,10 +14,13 @@ export const DEFAULT_WATCH_PROGRAMS = {
   raydiumCpmm: AVAILABLE_WATCH_PROGRAMS.raydiumCpmm
 };
 
-// Pola ini sangat spesifik untuk inisialisasi pool
+// PERBAIKAN UTAMA:
+// Kita hanya menyisakan pola 'initialize'. 
+// Bot HANYA akan memproses transaksi yang membuat pool baru.
 export const POOL_LOG_PATTERNS = [
-  /initialize2/i, 
-  /initialize/i
+  /initialize2/i,
+  /initialize/i,
+  /create.*pool/i
 ];
 
 export const DECISION_TYPES = {
