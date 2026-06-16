@@ -1,0 +1,10 @@
+.env
+.env.*
+!/.env.example
+node_modules/
+.npm-cache/
+.codex-git/
+user-config.json
+state.json
+decision-log.json
+npm-debug.log*

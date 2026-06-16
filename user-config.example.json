@@ -1,0 +1,60 @@
+{
+  "dryRun": true,
+  "risk": {
+    "minUsdPerSnipe": 0.1,
+    "maxUsdPerSnipe": 0.5,
+    "defaultUsdPerSnipe": 0.5,
+    "maxOpenPositions": 2,
+    "minSolReserve": 0.025,
+    "cooldownMinutesByMint": 180,
+    "maxDailyLossUsd": 1
+  },
+  "trading": {
+    "buyAmountSol": 0.02,
+    "slippageBps": 1500,
+    "priorityLevel": "veryHigh",
+    "priorityFeeLamports": 100000,
+    "skipPreflight": false,
+    "maxRetries": 2
+  },
+  "strategy": {
+    "waitTimeMinutes": 5,
+    "minVolumeUsd": 10000,
+    "minVolume5mUsd": 500,
+    "minVolume1hUsd": 3000,
+    "minTxns5m": 20,
+    "minBuys5m": 12,
+    "minBuySellRatio5m": 1.2,
+    "minLiquidityUsd": 5000,
+    "maxPriceImpactPct": 20,
+    "maxPairAgeMinutes": 240
+  },
+  "portfolio": {
+    "takeProfitPercent": 50,
+    "stopLossPercent": 20,
+    "trailingStopPercent": 12,
+    "maxHoldMinutes": 45,
+    "checkIntervalMs": 15000
+  },
+  "watch": {
+    "enabled": false,
+    "bootstrapRecentSignatures": 0,
+    "maxParsedTransactionsPerMinute": 12,
+    "maxConcurrentParses": 1,
+    "programIds": {
+      "raydiumLaunchLab": "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj"
+    }
+  },
+  "dexscreener": {
+    "baseUrl": "https://api.dexscreener.com",
+    "timeoutMs": 12000
+  },
+  "jupiter": {
+    "baseUrl": "https://lite-api.jup.ag",
+    "timeoutMs": 12000
+  },
+  "telegram": {
+    "enabled": true,
+    "pollIntervalMs": 5000
+  }
+}
