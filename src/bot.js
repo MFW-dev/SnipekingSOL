@@ -31,7 +31,7 @@ export class SnipeBot {
     this.telegram = telegram;
     this.watchlistTimer = null;
     this.managementTimer = null;
-    this._stopRequested = false; // Bendera keamanan untuk mematikan loop
+    this._stopRequested = false;
   }
 
   async start({ once = false } = {}) {
@@ -54,21 +54,25 @@ export class SnipeBot {
     this.telegram.startCommandPolling(() => this.statusSummary());
     
     if (this.config.watch.enabled) {
-      await this.watcher.bootstrapRecentSignatures().catch((error) => {
-        log("watcher", "recent signature bootstrap failed", errorToJson(error), "warn");
-      });
+      // Defensive check untuk bootstrapRecentSignatures
+      if (typeof this.watcher.bootstrapRecentSignatures === 'function') {
+        await this.watcher.bootstrapRecentSignatures().catch((error) => {
+          log("watcher", "recent signature bootstrap failed", errorToJson(error), "warn");
+        });
+      } else {
+        log("watcher", "bootstrapRecentSignatures method missing in OnchainWatcher class", null, "error");
+      }
       await this.watcher.start();
     } else {
       log("watcher", "disabled; set watch.enabled=true only when ready to spend RPC credits", null, "warn");
     }
 
-    // Memulai loop secara asinkron (menggantikan setInterval)
     this.loopScreening();
     this.loopManagement();
   }
 
   async stop() {
-    this._stopRequested = true; // Menghentikan siklus setTimeout
+    this._stopRequested = true;
     if (this.watchlistTimer) clearTimeout(this.watchlistTimer);
     if (this.managementTimer) clearTimeout(this.managementTimer);
     
@@ -77,7 +81,6 @@ export class SnipeBot {
     saveState(this.state);
   }
 
-  // Rekursif Timeout untuk Screening
   async loopScreening() {
     if (this._stopRequested) return;
     try {
@@ -91,7 +94,6 @@ export class SnipeBot {
     }
   }
 
-  // Rekursif Timeout untuk Management (Portfolio check)
   async loopManagement() {
     if (this._stopRequested) return;
     try {
@@ -107,17 +109,9 @@ export class SnipeBot {
 
   async runScreeningCycle() {
     return this.screenerHarness.run("screen quarantined watchlist", async () => {
-      if (this.maxPositionsReached()) {
-        log("screener", "max open positions reached");
-        return;
-      }
+      if (this.maxPositionsReached()) return;
       if (this.dailyLossExceeded()) {
-        recordDecision({
-          actor: "SCREENER",
-          type: DECISION_TYPES.SKIP,
-          summary: "screening skipped",
-          reason: "daily loss limit reached"
-        });
+        recordDecision({ actor: "SCREENER", type: DECISION_TYPES.SKIP, summary: "screening skipped", reason: "daily loss limit reached" });
         return;
       }
 
@@ -131,26 +125,14 @@ export class SnipeBot {
   }
 
   async handleCandidate(candidate) {
-    if (!candidate?.mint) return;
-    if (this.maxPositionsReached()) return;
-    if (this.hasOpenMint(candidate.mint)) return;
-    if (isMintWatched(this.state, candidate.mint)) return;
-    if (isMintOnCooldown(this.state, candidate.mint, this.config.risk.cooldownMinutesByMint)) return;
-    if (this.dailyLossExceeded()) return;
+    if (!candidate?.mint || this.maxPositionsReached() || this.hasOpenMint(candidate.mint) || isMintWatched(this.state, candidate.mint) || isMintOnCooldown(this.state, candidate.mint, this.config.risk.cooldownMinutesByMint) || this.dailyLossExceeded()) return;
 
     const watched = addWatchCandidate(this.state, candidate, this.config.strategy.waitTimeMinutes);
     if (!watched) return;
     markMintSeen(this.state, candidate.mint);
     
-    recordDecision({
-      actor: "WATCHER",
-      type: DECISION_TYPES.WATCH,
-      summary: `quarantine ${candidate.mint}`,
-      reason: `waiting ${this.config.strategy.waitTimeMinutes} minutes before DexScreener analysis`,
-      candidate: watched
-    });
+    recordDecision({ actor: "WATCHER", type: DECISION_TYPES.WATCH, summary: `quarantine ${candidate.mint}`, reason: `waiting ${this.config.strategy.waitTimeMinutes} minutes`, candidate: watched });
 
-    // Menghapus await, menggunakan catch agar tidak I/O blocking
     this.telegram.send(`WATCH ${candidate.mint}\nSource: ${candidate.source}\nAnalyze after: ${watched.eligibleAt}`)
       .catch(err => log("telegram", "send failed", errorToJson(err), "warn"));
       
@@ -162,32 +144,12 @@ export class SnipeBot {
     try {
       screened = await this.screener.screen(candidate);
     } catch (error) {
-      recordDecision({
-        actor: "SCREENER",
-        type: DECISION_TYPES.ERROR,
-        summary: "screening failed",
-        reason: error.message,
-        candidate
-      });
-      this.telegram.send(`SCREEN ERROR ${candidate.mint}\n${error.message}`)
-        .catch(err => log("telegram", "send failed", errorToJson(err), "warn"));
-      saveState(this.state);
+      this.telegram.send(`SCREEN ERROR ${candidate.mint}\n${error.message}`).catch(err => log("telegram", "send failed", errorToJson(err), "warn"));
       return;
     }
 
     if (!screened.accepted) {
-      recordDecision({
-        actor: "SCREENER",
-        type: DECISION_TYPES.SKIP,
-        summary: `skip ${screened.token?.symbol || candidate.mint}`,
-        reason: screened.reason,
-        risks: screened.risks,
-        metrics: screened.metrics,
-        candidate
-      });
-      this.telegram.send(`SKIP ${screened.token?.symbol || candidate.mint}\n${screened.reason}`)
-        .catch(err => log("telegram", "send failed", errorToJson(err), "warn"));
-      saveState(this.state);
+      this.telegram.send(`SKIP ${screened.token?.symbol || candidate.mint}\n${screened.reason}`).catch(err => log("telegram", "send failed", errorToJson(err), "warn"));
       return;
     }
 
@@ -196,37 +158,9 @@ export class SnipeBot {
       const position = this.buildPosition(screened, tx);
       addOpenPosition(this.state, position);
       
-      recordDecision({
-        actor: "SCREENER",
-        type: DECISION_TYPES.DEPLOY,
-        summary: screened.summary,
-        reason: "all configured screening gates passed",
-        risks: screened.risks,
-        metrics: screened.metrics,
-        candidate,
-        tx
-      });
-      
-      log("screener", screened.summary, { dryRun: tx.dryRun, mint: position.mint });
-      
-      this.telegram.send(`BUY ${position.symbol || position.mint}\nDry run: ${tx.dryRun}\nMint: ${position.mint}\nTx: ${tx.signature || "not sent"}`)
-        .catch(err => log("telegram", "send failed", errorToJson(err), "warn"));
-        
+      this.telegram.send(`BUY ${position.symbol || position.mint}\nDry run: ${tx.dryRun}\nMint: ${position.mint}`).catch(err => log("telegram", "send failed", errorToJson(err), "warn"));
     } catch (error) {
-      recordDecision({
-        actor: "SCREENER",
-        type: DECISION_TYPES.ERROR,
-        summary: `buy failed ${screened.token?.symbol || candidate.mint}`,
-        reason: error.message,
-        risks: screened.risks,
-        metrics: screened.metrics,
-        candidate
-      });
-      
-      log("executor", "buy failed", errorToJson(error), "error");
-      this.telegram.send(`BUY ERROR ${screened.token?.symbol || candidate.mint}\n${error.message}`)
-        .catch(err => log("telegram", "send failed", errorToJson(err), "warn"));
-        
+      this.telegram.send(`BUY ERROR ${screened.token?.symbol || candidate.mint}\n${error.message}`).catch(err => log("telegram", "send failed", errorToJson(err), "warn"));
     } finally {
       saveState(this.state);
     }
@@ -238,44 +172,12 @@ export class SnipeBot {
         try {
           const result = await this.manager.review(position);
           if (result.action === DECISION_TYPES.CLOSE) {
-            const pnlUsd = result.metrics.currentPnlPct === null
-              ? null
-              : position.entryUsd * (result.metrics.currentPnlPct / 100);
-              
-            const closed = closePosition(this.state, position.id, {
-              closeReason: result.reason,
-              sellSignature: result.tx?.signature || null,
-              pnlUsd,
-              lastMetrics: result.metrics
-            });
-            
-            recordDecision({
-              actor: "MANAGER",
-              type: DECISION_TYPES.CLOSE,
-              summary: `close ${position.symbol || position.mint}`,
-              reason: result.reason,
-              metrics: result.metrics,
-              candidate: { mint: position.mint },
-              tx: result.tx
-            });
-            
-            log("manager", `closed ${closed.symbol || closed.mint}`, { reason: result.reason });
-            
-            this.telegram.send(`SELL ${closed.symbol || closed.mint}\nReason: ${result.reason}\nPnL: ${result.metrics.currentPnlPct?.toFixed?.(2) ?? "n/a"}%`)
-              .catch(err => log("telegram", "send failed", errorToJson(err), "warn"));
-              
+            closePosition(this.state, position.id, { closeReason: result.reason, sellSignature: result.tx?.signature || null });
+            this.telegram.send(`SELL ${position.symbol || position.mint}\nReason: ${result.reason}`).catch(err => log("telegram", "send failed", errorToJson(err), "warn"));
           } else {
             replaceOpenPosition(this.state, result.position);
-            log("manager", `hold ${position.symbol || position.mint}`, result.metrics || {});
           }
         } catch (error) {
-          recordDecision({
-            actor: "MANAGER",
-            type: DECISION_TYPES.ERROR,
-            summary: `management failed ${position.symbol || position.mint}`,
-            reason: error.message,
-            candidate: { mint: position.mint }
-          });
           log("manager", "position review failed", errorToJson(error), "error");
         }
       }
@@ -284,16 +186,11 @@ export class SnipeBot {
   }
 
   statusSummary() {
-    const open = this.state.openPositions.length;
-    const watching = (this.state.watchlist || []).length;
-    const closed = this.state.closedPositions.length;
     return [
       "SnipekingSOL status",
       `Mode: ${this.config.dryRun ? "DRY_RUN" : "LIVE"}`,
-      `Watchlist: ${watching}`,
-      `Open positions: ${open}`,
-      `Closed positions: ${closed}`,
-      `Buy amount: ${this.config.trading.buyAmountSol} SOL`
+      `Watchlist: ${this.state.watchlist?.length || 0}`,
+      `Open: ${this.state.openPositions.length}`
     ].join("\n");
   }
 
@@ -304,36 +201,17 @@ export class SnipeBot {
       openedAt: new Date().toISOString(),
       mint: screened.token.id,
       symbol: screened.token.symbol,
-      name: screened.token.name,
-      source: screened.candidate.source,
-      sourceSignature: screened.candidate.signature || null,
       entryUsd: screened.metrics.usdAmount,
-      entryTokenUsd: Number(screened.token.usdPrice || 0),
-      highestTokenUsd: Number(screened.token.usdPrice || 0),
-      amountLamports: screened.metrics.amountLamports,
-      quotedOutAmount: screened.quote.outAmount,
-      route: screened.metrics.route,
       buySignature: tx.signature,
       dryRun: tx.dryRun
     };
   }
 
-  maxPositionsReached() {
-    return this.state.openPositions.length >= this.config.risk.maxOpenPositions;
-  }
-
-  hasOpenMint(mint) {
-    return this.state.openPositions.some((position) => position.mint === mint);
-  }
-
+  maxPositionsReached() { return this.state.openPositions.length >= this.config.risk.maxOpenPositions; }
+  hasOpenMint(mint) { return this.state.openPositions.some((p) => p.mint === mint); }
   dailyLossExceeded() {
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-    const loss = this.state.closedPositions
-      .filter((position) => new Date(position.closedAt || 0).getTime() >= cutoff)
-      .reduce((sum, position) => {
-        const pnl = Number(position.pnlUsd || 0);
-        return pnl < 0 ? sum + Math.abs(pnl) : sum;
-      }, 0);
+    const loss = this.state.closedPositions.filter(p => new Date(p.closedAt || 0).getTime() >= cutoff).reduce((s, p) => (Number(p.pnlUsd || 0) < 0 ? s + Math.abs(p.pnlUsd) : s), 0);
     return loss >= this.config.risk.maxDailyLossUsd;
   }
 }
