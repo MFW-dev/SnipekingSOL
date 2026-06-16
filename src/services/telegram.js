@@ -6,7 +6,7 @@ export class TelegramNotifier {
     this.enabled = Boolean(this.config.enabled && this.config.botToken && this.config.chatId);
     this.baseUrl = this.enabled ? `https://api.telegram.org/bot${this.config.botToken}` : "";
     this.offset = 0;
-    this.isPolling = false; // Flag untuk mencegah tumpang tindih
+    this.timer = null;
   }
 
   async send(message) {
@@ -18,44 +18,26 @@ export class TelegramNotifier {
         disable_web_page_preview: true
       });
     } catch (error) {
-      if (error.name === "AbortError") {
-        console.warn(`[telegram] Notification timeout (slow network)`);
-      } else {
-        log("telegram", "failed to send message", errorToJson(error), "warn");
-      }
+      log("telegram", "failed to send message", error.message, "warn");
     }
   }
 
-  async startCommandPolling(statusProvider) {
-    if (!this.enabled || this.isPolling) return;
-    this.isPolling = true;
-
-    // Gunakan fungsi rekursif, bukan setInterval
-    const pollLoop = async () => {
-      try {
-        await this.poll(statusProvider);
-      } catch (error) {
-        if (error.name !== "AbortError") {
-          log("telegram", "command polling error", errorToJson(error), "warn");
-        }
-      } finally {
-        if (this.isPolling) {
-          setTimeout(pollLoop, this.config.pollIntervalMs);
-        }
-      }
-    };
-
-    pollLoop();
+  startCommandPolling(statusProvider) {
+    if (!this.enabled || this.timer) return;
+    this.timer = setInterval(() => {
+      this.poll(statusProvider).catch(() => {});
+    }, this.config.pollIntervalMs);
   }
 
   stop() {
-    this.isPolling = false;
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
   }
 
   async poll(statusProvider) {
     const result = await this.request("getUpdates", {
       offset: this.offset,
-      timeout: 30, // Biarkan koneksi menunggu server (Long Polling)
+      timeout: 30,
       allowed_updates: ["message"]
     });
 
@@ -70,28 +52,18 @@ export class TelegramNotifier {
   }
 
   async request(method, body) {
-    // Timeout diperpanjang jadi 30 detik untuk mengakomodasi koneksi lokal
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000); 
-
-    try {
-      const response = await fetch(`${this.baseUrl}/${method}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: controller.signal
-      });
-
-      clearTimeout(timeout);
-      const data = await response.json();
-      
-      if (!response.ok || data?.ok === false) {
-        throw new Error(`Telegram ${response.status}: ${data?.description}`);
-      }
-      return data;
-    } catch (error) {
-      clearTimeout(timeout);
-      throw error;
+    const response = await fetch(`${this.baseUrl}/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    
+    const text = await response.text();
+    const data = text ? JSON.parse(text) : null;
+    
+    if (!response.ok || data?.ok === false) {
+      throw new Error(`Telegram API Error: ${data?.description || text}`);
     }
+    return data;
   }
 }
