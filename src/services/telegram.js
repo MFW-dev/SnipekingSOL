@@ -6,7 +6,7 @@ export class TelegramNotifier {
     this.enabled = Boolean(this.config.enabled && this.config.botToken && this.config.chatId);
     this.baseUrl = this.enabled ? `https://api.telegram.org/bot${this.config.botToken}` : "";
     this.offset = 0;
-    this.timer = null;
+    this.isPolling = false; // Flag untuk mencegah tumpang tindih
   }
 
   async send(message) {
@@ -18,36 +18,44 @@ export class TelegramNotifier {
         disable_web_page_preview: true
       });
     } catch (error) {
-      // Filter log: jangan spam jika hanya timeout atau fetch failed
-      if (error.message.includes("504") || error.message.includes("fetch failed") || error.name === "AbortError") {
-        console.warn(`[telegram] Connection issue, notification skipped: ${error.message}`);
+      if (error.name === "AbortError") {
+        console.warn(`[telegram] Notification timeout (slow network)`);
       } else {
         log("telegram", "failed to send message", errorToJson(error), "warn");
       }
     }
   }
 
-  startCommandPolling(statusProvider) {
-    if (!this.enabled || this.timer) return;
-    this.timer = setInterval(() => {
-      this.poll(statusProvider).catch((error) => {
-        // Filter log: jangan spam jika polling gagal karena network issue
-        if (!error.message.includes("504") && !error.message.includes("fetch failed")) {
-          log("telegram", "command polling failed", errorToJson(error), "warn");
+  async startCommandPolling(statusProvider) {
+    if (!this.enabled || this.isPolling) return;
+    this.isPolling = true;
+
+    // Gunakan fungsi rekursif, bukan setInterval
+    const pollLoop = async () => {
+      try {
+        await this.poll(statusProvider);
+      } catch (error) {
+        if (error.name !== "AbortError") {
+          log("telegram", "command polling error", errorToJson(error), "warn");
         }
-      });
-    }, this.config.pollIntervalMs);
+      } finally {
+        if (this.isPolling) {
+          setTimeout(pollLoop, this.config.pollIntervalMs);
+        }
+      }
+    };
+
+    pollLoop();
   }
 
   stop() {
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
+    this.isPolling = false;
   }
 
   async poll(statusProvider) {
     const result = await this.request("getUpdates", {
       offset: this.offset,
-      timeout: 0,
+      timeout: 30, // Biarkan koneksi menunggu server (Long Polling)
       allowed_updates: ["message"]
     });
 
@@ -62,9 +70,9 @@ export class TelegramNotifier {
   }
 
   async request(method, body) {
-    // Menambahkan AbortController untuk menangani timeout 15 detik
+    // Timeout diperpanjang jadi 30 detik untuk mengakomodasi koneksi lokal
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000); 
+    const timeout = setTimeout(() => controller.abort(), 30000); 
 
     try {
       const response = await fetch(`${this.baseUrl}/${method}`, {
@@ -75,12 +83,10 @@ export class TelegramNotifier {
       });
 
       clearTimeout(timeout);
-
-      const text = await response.text();
-      const data = text ? JSON.parse(text) : null;
+      const data = await response.json();
       
       if (!response.ok || data?.ok === false) {
-        throw new Error(`Telegram ${response.status}: ${data?.description || text}`);
+        throw new Error(`Telegram ${response.status}: ${data?.description}`);
       }
       return data;
     } catch (error) {
