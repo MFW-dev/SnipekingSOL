@@ -11,20 +11,30 @@ export class TelegramNotifier {
 
   async send(message) {
     if (!this.enabled) return;
-    await this.request("sendMessage", {
-      chat_id: this.config.chatId,
-      text: message,
-      disable_web_page_preview: true
-    }).catch((error) => {
-      log("telegram", "failed to send message", errorToJson(error), "warn");
-    });
+    try {
+      await this.request("sendMessage", {
+        chat_id: this.config.chatId,
+        text: message,
+        disable_web_page_preview: true
+      });
+    } catch (error) {
+      // Filter log: jangan spam jika hanya timeout atau fetch failed
+      if (error.message.includes("504") || error.message.includes("fetch failed") || error.name === "AbortError") {
+        console.warn(`[telegram] Connection issue, notification skipped: ${error.message}`);
+      } else {
+        log("telegram", "failed to send message", errorToJson(error), "warn");
+      }
+    }
   }
 
   startCommandPolling(statusProvider) {
     if (!this.enabled || this.timer) return;
     this.timer = setInterval(() => {
       this.poll(statusProvider).catch((error) => {
-        log("telegram", "command polling failed", errorToJson(error), "warn");
+        // Filter log: jangan spam jika polling gagal karena network issue
+        if (!error.message.includes("504") && !error.message.includes("fetch failed")) {
+          log("telegram", "command polling failed", errorToJson(error), "warn");
+        }
       });
     }, this.config.pollIntervalMs);
   }
@@ -52,16 +62,30 @@ export class TelegramNotifier {
   }
 
   async request(method, body) {
-    const response = await fetch(`${this.baseUrl}/${method}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
-    });
-    const text = await response.text();
-    const data = text ? JSON.parse(text) : null;
-    if (!response.ok || data?.ok === false) {
-      throw new Error(`Telegram ${response.status}: ${data?.description || text}`);
+    // Menambahkan AbortController untuk menangani timeout 15 detik
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000); 
+
+    try {
+      const response = await fetch(`${this.baseUrl}/${method}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeout);
+
+      const text = await response.text();
+      const data = text ? JSON.parse(text) : null;
+      
+      if (!response.ok || data?.ok === false) {
+        throw new Error(`Telegram ${response.status}: ${data?.description || text}`);
+      }
+      return data;
+    } catch (error) {
+      clearTimeout(timeout);
+      throw error;
     }
-    return data;
   }
 }
