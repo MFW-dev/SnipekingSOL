@@ -12,8 +12,11 @@ export const AVAILABLE_WATCH_PROGRAMS = {
   meteoraDlmm: "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo"
 };
 
+// PERBAIKAN: Memasukkan program utama Raydium ke dalam daftar pantauan default
 export const DEFAULT_WATCH_PROGRAMS = {
-  raydiumLaunchLab: AVAILABLE_WATCH_PROGRAMS.raydiumLaunchLab
+  raydiumLaunchLab: AVAILABLE_WATCH_PROGRAMS.raydiumLaunchLab,
+  raydiumAmmV4: AVAILABLE_WATCH_PROGRAMS.raydiumAmmV4,
+  raydiumCpmm: AVAILABLE_WATCH_PROGRAMS.raydiumCpmm
 };
 
 export const POOL_LOG_PATTERNS = [
